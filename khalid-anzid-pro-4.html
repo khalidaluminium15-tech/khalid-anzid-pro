@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Khalid Anzid">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <link rel="manifest" href="manifest.json">
 <title>Khalid Anzid Pro</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -753,6 +754,14 @@ const _hex = b => [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).
 const _unhex = h => new Uint8Array(h.match(/../g).map(x=>parseInt(x,16)));
 async function checkCode() {
   const inp = document.getElementById('lock-input');
+  const now = Date.now();
+  const lockUntil = parseInt(sessionStorage.getItem('ka_lock_until')||'0');
+  if(now < lockUntil) {
+    const err = document.getElementById('lock-error');
+    err.textContent = 'Trop d\'essais. Réessayez dans ' + Math.ceil((lockUntil-now)/1000) + 's';
+    err.style.display = 'block';
+    return;
+  }
   let ok = false;
   try {
     const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(inp.value), 'PBKDF2', false, ['deriveBits']);
@@ -762,8 +771,14 @@ async function checkCode() {
   if(ok) {
     document.getElementById('lock-screen').style.display = 'none';
     sessionStorage.setItem('ka_auth', '1');
+    sessionStorage.removeItem('ka_fails'); sessionStorage.removeItem('ka_lock_until');
   } else {
-    document.getElementById('lock-error').style.display = 'block';
+    const fails = parseInt(sessionStorage.getItem('ka_fails')||'0') + 1;
+    sessionStorage.setItem('ka_fails', String(fails));
+    if(fails >= 5) sessionStorage.setItem('ka_lock_until', String(Date.now() + Math.min(30*Math.pow(2, fails-5), 3600)*1000));
+    const err = document.getElementById('lock-error');
+    err.textContent = 'Code incorrect !';
+    err.style.display = 'block';
     inp.value = '';
     inp.focus();
   }
@@ -1546,7 +1561,7 @@ function addRow(gid, larg='', haut='', qty=1, pu=0, noMesure=false, desc='') {
   div.innerHTML = `
     <div class="group-row" style="flex-wrap:wrap;gap:4px;padding:6px 4px">
       <div id="nodims-${rid}" style="display:${hasDims?'none':'block'};width:100%;margin-bottom:4px">
-        <textarea rows="1" id="rdesc-${rid}" placeholder="Description du produit..." style="width:100%;padding:7px 8px;border:1.5px solid var(--border);border-radius:7px;font-family:inherit;font-size:0.82rem;background:var(--lighter);color:var(--dark);resize:none;overflow:hidden;min-height:34px" oninput="autoResizeTA(this)">${desc}</textarea>
+        <textarea rows="1" id="rdesc-${rid}" placeholder="Description du produit..." style="width:100%;padding:7px 8px;border:1.5px solid var(--border);border-radius:7px;font-family:inherit;font-size:0.82rem;background:var(--lighter);color:var(--dark);resize:none;overflow:hidden;min-height:34px" oninput="autoResizeTA(this)">${esc(desc)}</textarea>
       </div>
       <div style="display:flex;gap:4px;width:100%;align-items:center">
         <div id="dims-${rid}" style="display:${hasDims?'flex':'none'};gap:4px">
@@ -1616,7 +1631,7 @@ function searchGrpProd(input, gid) {
   if(!matches.length) { box.style.display='none'; return; }
   box.innerHTML = matches.map(p=>`
     <div class="prod-item" onmousedown="selectGrpProd(${produits.indexOf(p)},${gid})">
-      <strong>${p.nom}</strong><span>${p.prix} DH</span>
+      <strong>${esc(p.nom)}</strong><span>${p.prix} DH</span>
     </div>`).join('');
   box.style.display='block';
 }
@@ -1705,7 +1720,7 @@ function addAvanceRow(date='', montant='') {
   div.id = `avrow-${aid}`;
   div.style.cssText = 'display:flex;gap:6px;align-items:center';
   div.innerHTML = `
-    <input type="date" id="avdate-${aid}" value="${date}"
+    <input type="date" id="avdate-${aid}" value="${esc(date)}"
       style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:7px;color:#fff;font-family:inherit;font-size:0.82rem" />
     <input type="number" id="avamt-${aid}" value="${montant}" placeholder="Montant" min="0" step="0.01"
       oninput="calcAvance()"
@@ -1804,7 +1819,7 @@ function searchProd(input, id) {
   if(!matches.length) { box.style.display='none'; return; }
   box.innerHTML = matches.map(p=>`
     <div class="prod-item" onmousedown="selectProd(${produits.indexOf(p)},${id})">
-      <strong>${p.nom}</strong><span>${p.prix} DH</span>
+      <strong>${esc(p.nom)}</strong><span>${p.prix} DH</span>
     </div>`).join('');
   box.style.display='block';
 }
@@ -1826,8 +1841,8 @@ function searchCl() {
   if(!matches.length) { box.style.display='none'; return; }
   box.innerHTML = matches.map(c=>`
     <div class="ac-item" onclick="selectCl(${clients.indexOf(c)})">
-      <strong>${c.nom}</strong>
-      <small>${c.num ? 'N°'+c.num+' · ' : ''}${c.ville||''} ${c.ice ? '· ICE:'+c.ice : ''}</small>
+      <strong>${esc(c.nom)}</strong>
+      <small>${c.num ? 'N°'+esc(c.num)+' · ' : ''}${esc(c.ville||'')} ${c.ice ? '· ICE:'+esc(c.ice) : ''}</small>
     </div>`).join('');
   box.style.display='block';
 }
@@ -1882,7 +1897,7 @@ function renderClients() {
   list.innerHTML = f.map(c=>{
     const i = clients.indexOf(c);
     return `<div class="list-item">
-      <div class="li-info"><strong>${c.nom}</strong><small>${c.num?'N°'+c.num+' · ':''}${c.ville||''} ${c.tel?'· '+c.tel:''}</small></div>
+      <div class="li-info"><strong>${esc(c.nom)}</strong><small>${c.num?'N°'+esc(c.num)+' · ':''}${esc(c.ville||'')} ${c.tel?'· '+esc(c.tel):''}</small></div>
       <div class="li-actions">
         <button class="li-btn li-edit" onclick="openClientModal(${i})">✏️</button>
         <button class="li-btn li-del" onclick="deleteCl(${i})">✕</button>
@@ -1924,7 +1939,7 @@ function renderProds() {
   list.innerHTML = f.map(p=>{
     const i = produits.indexOf(p);
     return `<div class="list-item">
-      <div class="li-info"><strong>${p.nom}</strong><small>${p.prix} DH ${p.unite?'/ '+p.unite:''}</small></div>
+      <div class="li-info"><strong>${esc(p.nom)}</strong><small>${p.prix} DH ${p.unite?'/ '+esc(p.unite):''}</small></div>
       <div class="li-actions">
         <button class="li-btn li-edit" onclick="openProdModal(${i})">✏️</button>
         <button class="li-btn li-del" onclick="deletePr(${i})">✕</button>
@@ -2004,7 +2019,7 @@ function renderYearTabs() {
   let html = `<button onclick="setHistYear('ALL')" style="flex-shrink:0;padding:6px 14px;border-radius:20px;border:1.5px solid ${histYear==='ALL'?ac:'var(--border)'};background:${histYear==='ALL'?ac:'#fff'};color:${histYear==='ALL'?'#fff':'var(--gray)'};font-family:inherit;font-size:0.72rem;font-weight:700;cursor:pointer;white-space:nowrap">Tous les ans</button>`;
   years.forEach(yr=>{
     const isAct = histYear===yr;
-    html += `<button onclick="setHistYear('${yr}')" style="flex-shrink:0;padding:6px 14px;border-radius:20px;border:1.5px solid ${isAct?ac:'var(--border)'};background:${isAct?ac:'#fff'};color:${isAct?'#fff':'var(--gray)'};font-family:inherit;font-size:0.72rem;font-weight:700;cursor:pointer;white-space:nowrap">${yr}</button>`;
+    html += `<button onclick="setHistYear('${esc(yr)}')" style="flex-shrink:0;padding:6px 14px;border-radius:20px;border:1.5px solid ${isAct?ac:'var(--border)'};background:${isAct?ac:'#fff'};color:${isAct?'#fff':'var(--gray)'};font-family:inherit;font-size:0.72rem;font-weight:700;cursor:pointer;white-space:nowrap">${esc(yr)}</button>`;
   });
   container.innerHTML = html;
 }
@@ -2034,7 +2049,7 @@ function renderMonthTabs() {
     const [yr,mo] = m.split('-');
     const label = monthNames[parseInt(mo)];
     const isAct = histMonth===m;
-    html += `<button onclick="setHistMonth('${m}')" style="flex-shrink:0;padding:5px 11px;border-radius:20px;border:1.5px solid ${isAct?ac:'var(--border)'};background:${isAct?ac:'#fff'};color:${isAct?'#fff':'var(--gray)'};font-family:inherit;font-size:0.65rem;font-weight:700;cursor:pointer;white-space:nowrap">${label}</button>`;
+    html += `<button onclick="setHistMonth('${esc(m)}')" style="flex-shrink:0;padding:5px 11px;border-radius:20px;border:1.5px solid ${isAct?ac:'var(--border)'};background:${isAct?ac:'#fff'};color:${isAct?'#fff':'var(--gray)'};font-family:inherit;font-size:0.65rem;font-weight:700;cursor:pointer;white-space:nowrap">${label}</button>`;
   });
   container.innerHTML = html;
 }
@@ -2087,9 +2102,9 @@ function renderHistory() {
     return `
     <div class="hist-item">
       <div style="flex:1;min-width:0">
-        <div class="hist-num">${h.num||'—'}${h.convertedFrom?` <span style="font-size:0.65rem;color:var(--gray)">← ${h.convertedFrom}</span>`:''}
+        <div class="hist-num">${esc(h.num||'—')}${h.convertedFrom?` <span style="font-size:0.65rem;color:var(--gray)">← ${esc(h.convertedFrom)}</span>`:''}
         </div>
-        <div class="hist-client">${h.client||'Sans client'}</div>
+        <div class="hist-client">${esc(h.client||'Sans client')}</div>
         <div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap">
           <button class="hist-pdf-btn" style="flex:1;min-width:55px" onclick="rePDF(${realIdx})">📄 PDF</button>
           <button class="hist-pdf-btn" style="flex:1;min-width:55px;background:var(--gold);color:#fff" onclick="loadDoc(${realIdx})">✏️ Modif.</button>
@@ -2105,7 +2120,7 @@ function renderHistory() {
           </div>
           ${(h.avances||[]).map(av=>`
           <div style="display:flex;justify-content:space-between;color:#27ae60">
-            <span>✅ Avance${av.date?' ('+av.date+')':''}</span><span style="font-weight:700">- ${fmtNum(av.montant||0)} DH</span>
+            <span>✅ Avance${av.date?' ('+esc(av.date)+')':''}</span><span style="font-weight:700">- ${fmtNum(av.montant||0)} DH</span>
           </div>`).join('')}
           <div style="display:flex;justify-content:space-between;color:#c0392b;font-weight:700;border-top:1px solid #e0e0e0;margin-top:4px;padding-top:4px">
             <span>⬜ Reste</span><span>${fmtNum(Math.max(0,(h.total||0)-(h.avance||0))) } DH</span>
@@ -2114,7 +2129,7 @@ function renderHistory() {
       </div>
       <div style="text-align:right;flex-shrink:0;padding-left:8px">
         <div class="hist-amount">${fmtNum(h.total||0)} DH</div>
-        <div class="hist-date">${h.date||''}</div>
+        <div class="hist-date">${esc(h.date||'')}</div>
         <button class="li-btn li-del" style="margin-top:8px;margin-left:auto" onclick="deleteHist(${realIdx})">✕</button>
       </div>
     </div>`;
@@ -2156,7 +2171,7 @@ function loadDoc(i) {
     if(isBC) {
       div.innerHTML = `
         <div class="group-head">
-          <input type="text" class="group-des-input" id="gdes-${gid}" placeholder="Désignation..." value="${grp.des||''}" style="flex:1" />
+          <input type="text" class="group-des-input" id="gdes-${gid}" placeholder="Désignation..." value="${esc(grp.des||'')}" style="flex:1" />
           <button class="group-del-btn" onclick="delGroup(${gid})">✕</button>
         </div>
         <div class="group-rows" id="grows-${gid}"></div>
@@ -2170,7 +2185,7 @@ function loadDoc(i) {
         const d2 = document.createElement('div');
         d2.id = `row-${rid}`;
         d2.innerHTML = `<div class="group-row">
-          <div style="flex:1"><input type="text" style="width:100%;padding:7px 8px;border:1.5px solid var(--border);border-radius:7px;font-family:inherit;font-size:0.82rem;background:var(--lighter);color:var(--dark);" placeholder="Article" id="rbdes-${rid}" value="${row.des||''}" /><div class="inp-lbl">Désignation</div></div>
+          <div style="flex:1"><input type="text" style="width:100%;padding:7px 8px;border:1.5px solid var(--border);border-radius:7px;font-family:inherit;font-size:0.82rem;background:var(--lighter);color:var(--dark);" placeholder="Article" id="rbdes-${rid}" value="${esc(row.des||'')}" /><div class="inp-lbl">Désignation</div></div>
           <div><input type="number" class="inp-qty" id="rq-${rid}" value="${row.qty||1}" min="0" step="0.001" /><div class="inp-lbl">Qté</div></div>
           <button class="row-del" onclick="delRow(${gid},${rid})">✕</button>
         </div>`;
@@ -2185,7 +2200,7 @@ function loadDoc(i) {
             <option value="f"  ${type==='f'?'selected':''}>Fourniture</option>
             <option value="p"  ${type==='p'?'selected':''}>Pose</option>
           </select>
-          <input type="text" class="group-des-input" id="gdes-${gid}" placeholder="Désignation..." value="${grp.des||''}" oninput="searchGrpProd(this,${gid})" onfocus="searchGrpProd(this,${gid})" onblur="setTimeout(()=>hideGrpProd(${gid}),200)" />
+          <input type="text" class="group-des-input" id="gdes-${gid}" placeholder="Désignation..." value="${esc(grp.des||'')}" oninput="searchGrpProd(this,${gid})" onfocus="searchGrpProd(this,${gid})" onblur="setTimeout(()=>hideGrpProd(${gid}),200)" />
           <div class="prod-list" id="gpl-${gid}" style="position:absolute;z-index:300;min-width:200px"></div>
           <button class="group-del-btn" onclick="delGroup(${gid})">✕</button>
         </div>
@@ -2831,6 +2846,9 @@ function numberToWords(n) {
 function autoResizeTA(el) { el.style.height='auto'; el.style.height=el.scrollHeight+'px'; }
 function g(id) { return document.getElementById(id); }
 function v(id) { return g(id)?.value||''; }
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
 function save(key, data) { localStorage.setItem(key, JSON.stringify(data)); }
 function fmtNum(n) { return Number(n).toFixed(2).replace('.',','); }
 function openModal(id) { g(id).classList.add('open'); }
@@ -2914,8 +2932,8 @@ function renderFournisseurs() {
     return `<div class="list-item" style="flex-direction:column;align-items:stretch;gap:8px">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="li-info">
-          <strong>${fo.nom}</strong>
-          <small>${fo.tel?fo.tel+' · ':''}${fo.adresse||''}</small>
+          <strong>${esc(fo.nom)}</strong>
+          <small>${fo.tel?esc(fo.tel)+' · ':''}${esc(fo.adresse||'')}</small>
         </div>
         <div class="li-actions">
           <button class="li-btn li-edit" onclick="openFournModal(${i})">✏️</button>
@@ -3028,9 +3046,9 @@ function openFournDetail(i) {
       <div style="padding:8px;background:${a.statut==='paye'?'#f0fdf4':'#fdf2f2'};border-radius:8px;margin-bottom:6px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div style="flex:1">
-            <div style="font-size:0.82rem;font-weight:700;color:var(--dark)">${typeIcon[a.type]||'📝'} ${a.desc||typeLabel[a.type]||'Achat'}</div>
-            <div style="font-size:0.72rem;color:var(--gray)">${a.date||''} · ${typeLabel[a.type]||''}</div>
-            ${a.fichierNom?`<div style="font-size:0.7rem;color:#2563eb;margin-top:2px">📎 ${a.fichierNom}</div>`:''}
+            <div style="font-size:0.82rem;font-weight:700;color:var(--dark)">${typeIcon[a.type]||'📝'} ${esc(a.desc||typeLabel[a.type]||'Achat')}</div>
+            <div style="font-size:0.72rem;color:var(--gray)">${esc(a.date||'')} · ${typeLabel[a.type]||''}</div>
+            ${a.fichierNom?`<div style="font-size:0.7rem;color:#2563eb;margin-top:2px">📎 ${esc(a.fichierNom)}</div>`:''}
           </div>
           <div style="text-align:right;margin-left:8px">
             <div style="font-weight:700;color:${a.statut==='paye'?'#16a34a':'#c0392b'}">${fmtNum(a.montant)} DH</div>
@@ -3327,10 +3345,14 @@ function importData(input) {
       if(!confirm(`Restaurer ${data.clients?.length||0} clients, ${data.produits?.length||0} produits et ${data.history?.length||0} documents ?\n\nCela remplacera toutes vos données actuelles.`)) {
         input.value=''; return;
       }
-      clients      = data.clients       || [];
-      produits     = data.produits      || [];
-      history      = data.history       || [];
-      fournisseurs = data.fournisseurs  || [];
+      const arr = v => Array.isArray(v) ? v.filter(x => x && typeof x === 'object' && !Array.isArray(x)) : [];
+      clients      = arr(data.clients);
+      produits     = arr(data.produits);
+      history      = arr(data.history);
+      fournisseurs = arr(data.fournisseurs);
+      if(clients.some(c=>typeof c.nom!=='string') || produits.some(p=>typeof p.nom!=='string') || fournisseurs.some(fo=>typeof fo.nom!=='string')) {
+        throw new Error('Fichier invalide');
+      }
       save('ka_clients',       clients);
       save('ka_produits',      produits);
       save('ka_history',       history);
